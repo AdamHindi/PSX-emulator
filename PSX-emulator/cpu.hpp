@@ -22,10 +22,13 @@ private:
 	
 	void decode_and_execute(uint32_t opcode);
 	uint32_t read32(uint32_t address);
+	void write32(uint32_t address, uint32_t value);
 
 	void op_lui(Instruction instruct);
 	void op_ori(Instruction instruct);
 	void op_sw(Instruction instruct);
+	void op_sll(Instruction instruct);
+	void op_addiu(Instruction instruct);
 };
 
 

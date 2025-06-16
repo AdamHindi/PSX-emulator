@@ -22,7 +22,18 @@ void CPU::next_instruction() {
 void CPU::decode_and_execute(uint32_t instruction) {
 	// Decode the instruction and execute it
 	Instruction instruct = Instruction(instruction); // Assuming Instruction is a class that can interpret the instruction
+
+	printf("Function code : 0x % 08X\n",instruct.funct);
 	switch (instruct.funct) { // Example: using the last byte as an opcode
+		case 0b000000: {
+			switch (instruct.subfunct) {
+				case 0b000000:
+					op_sll(instruct);
+					break;
+			}
+				
+			break;
+		}
 		case 0b001111: // Example opcode for LUI (Load Upper Immediate)
 			op_lui(instruct);
 			break;
@@ -31,6 +42,9 @@ void CPU::decode_and_execute(uint32_t instruction) {
 			break;
 		case 0b101011 : // Example opcode for SW (Store Word)
 			op_sw(instruct);
+			break;
+		case 0x09:
+			op_addiu(instruct);
 			break;
 		default:
 			printf("Unknown instruction: 0x%08X\n", instruction);
@@ -41,6 +55,9 @@ void CPU::decode_and_execute(uint32_t instruction) {
 
 uint32_t CPU::read32(uint32_t address) {
 	return CPU::interconnect.read32(address); // Read a 32-bit value from the interconnect
+}
+void CPU::write32(uint32_t address, uint32_t value) {
+	CPU::interconnect.write32(address, value);
 }
 
 void CPU::set_register(uint32_t reg, uint32_t value) {
@@ -64,10 +81,20 @@ void CPU::op_ori(Instruction instruct) {
 	set_register(rt, v); // Set the target register with the result
 }
 void CPU::op_sw(Instruction instruct) {
-	auto rt = instruct.rt; // Extract the target register from the instruction
-	auto rs = instruct.rs; // Extract the base register from the instruction
-	auto offset = instruct.immediate; // Extract the offset from the instruction
-	auto address = CPU::get_register(rs) + offset; // Calculate the effective address
-	auto value = CPU::get_register(rt); // Get the value to store from the target register
-	interconnect.write32(address, value); // Write the value to memory at the calculated address
+	auto i_se = instruct.immediate_sign_extended;
+	auto t = instruct.rt;
+	auto s = instruct.rs;
+	uint32_t addr = get_register(s) + i_se;
+	uint32_t v = get_register(t);
+	write32(addr, v); // Write the value to memory at the calculated address
+}
+void CPU::op_sll(Instruction instruct) {
+	auto i = instruct.shamt;
+	auto t = instruct.rt;
+	auto d = instruct.rd;
+	auto v = get_register(t) << i;
+	set_register(d, v);
+}
+void CPU::op_addiu(Instruction instruct) {
+
 }
