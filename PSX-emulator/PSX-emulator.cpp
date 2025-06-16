@@ -2,9 +2,20 @@
 //
 
 #include <iostream>
+#include "cpu.hpp"
 
 int main()
 {
+	BIOS bios("roms/SCPH1001.bin");
+	Interconnect interconnect(bios);
+
+	CPU cpu(interconnect);
+	for (int i = 0; i < 5; i++) {
+		cpu.next_instruction();
+	}
+	
+	
+    
     std::cout << "Hello World!\n";
 }
 
