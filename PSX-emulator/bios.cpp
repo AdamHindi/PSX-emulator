@@ -32,9 +32,9 @@ void BIOS::init(const std::string& path) {
 	}
 }
 
-uint32_t BIOS::read32(uint32_t address) const {  
+uint32_t BIOS::read32(uint32_t offset) const {  
     // Read a 32-bit value from the BIOS data at the specified address  
-    uint32_t offset = address - 0xBFC00000;
+    
 	uint32_t b0 = biosData[offset];
 	uint32_t b1 = biosData[offset + 1];
 	uint32_t b2 = biosData[offset + 2];
@@ -43,6 +43,9 @@ uint32_t BIOS::read32(uint32_t address) const {
 	return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24); // little-endian format
 }
 
+uint8_t BIOS::read8(uint32_t addr) const {
+    return biosData[addr];
+}
 bool BIOS::rangeCheck(uint32_t address) const
 {
     // BIOS is mapped from 0xBFC00000 to 0xBFC7FFFF (512KB)

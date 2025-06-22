@@ -24,7 +24,7 @@ struct Instruction {
 		rd = (code >> 11) & 0x1F;
 		shamt = (code >> 6) & 0x1F;
 		subfunct = code & 0x3F;
-		jump_addr = code & 0x3FFFFFF;
+		jump_addr = code & 0x3ffffff;
 	};
 
 };

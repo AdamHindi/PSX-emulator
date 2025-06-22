@@ -14,6 +14,8 @@ public:
 public:
 	void init(const std::string& path); // load BIOS from BIOS file
 	uint32_t read32(uint32_t address) const; // read a byte from the BIOS at the specified address
+	uint8_t read8(uint32_t address) const; // read a byte from the BIOS at the specified address
+
 	bool rangeCheck(uint32_t address) const; // check if the address is within the BIOS range
 private:
 	std::vector<uint8_t> biosData; //BIOS data
