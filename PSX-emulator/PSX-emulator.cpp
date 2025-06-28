@@ -7,11 +7,17 @@
 int main()
 {
 	BIOS bios("roms/SCPH1001.bin");
-	Interconnect interconnect(bios);
+	RAM ram;
+	DMA dma;
+	GPU gpu;
+	Interconnect interconnect(bios, ram, dma, gpu);
 
 	CPU cpu(interconnect);
-	for (int i = 0; i < 5; i++) {
-		cpu.next_instruction();
+	while(cpu.running) {
+		
+		cpu.run_next_instruction();
+
+		
 	}
 	
 	

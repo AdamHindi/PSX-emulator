@@ -1,13 +1,9 @@
 #include "ram.hpp"
 
 
-void RAM::reset(){
-	dataRam = std::vector<uint8_t>(2 * 1024 * 1024, 0xCA);
-}
-
-
 uint32_t RAM::read32(uint32_t offset) {
 	offset = static_cast<size_t>(offset);
+
 	auto b0 = static_cast<uint32_t>(dataRam[offset + 0]);
 	auto b1 = static_cast<uint32_t>(dataRam[offset + 1]);
 	auto b2 = static_cast<uint32_t>(dataRam[offset + 2]);
@@ -27,6 +23,7 @@ uint8_t RAM::read8(uint32_t offset) {
 
 void RAM::write32(uint32_t offset, uint32_t value) {
 	offset = static_cast<size_t>(offset);
+
 	auto b0 = static_cast<uint8_t>(value);
 	auto b1 = static_cast<uint8_t>(value >> 8);
 	auto b2 = static_cast<uint8_t>(value >> 16);
@@ -40,11 +37,13 @@ void RAM::write32(uint32_t offset, uint32_t value) {
 void RAM::write16(uint32_t offset, uint16_t val) {
 	uint8_t b0 = val;
 	uint8_t b1 = (val >> 8);
+
 	dataRam[offset + 0] = b0;
 	dataRam[offset + 1] = b1;
 
 }
 
 void RAM::write8(uint32_t offset, uint8_t val) {
+
 	dataRam[offset] = val;
 }

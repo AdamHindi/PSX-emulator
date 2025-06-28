@@ -2,6 +2,7 @@
 #include <optional>
 #include "ram.hpp"
 #include "dma.hpp"
+#include "gpu.hpp"
 
 constexpr uint32_t REGION_MASK[8] = {
 	// KUSEG: 2048MB
@@ -11,7 +12,7 @@ constexpr uint32_t REGION_MASK[8] = {
 	// KSEG1: 512MB
 	0x1FFFFFFF,
 	// KSEG2: 1024MB
-	0xFFFFFFFF, 0xFFFFFFFF
+	0xFFFFFFFF, 0xFFFFFFFF,
 };
 
 
@@ -38,7 +39,7 @@ struct Range {
 class Interconnect {
 
 public:
-	Interconnect(const BIOS& b, const RAM& r, const DMA& d) : bios(b), ram(r), dma(d) {};
+	Interconnect( BIOS& b, RAM& r, DMA& d, GPU& g) : bios(b), ram(r), dma(d), gpu(g){};
 	
 	uint32_t read32(uint32_t address);
 	uint16_t read16(uint32_t address);
@@ -49,9 +50,12 @@ public:
 	void write16(uint32_t address, uint16_t value);
 	void write8(uint32_t address, uint8_t value);
 private:
-	BIOS bios;
-	RAM ram;
-	DMA dma;
+	BIOS& bios;
+	RAM& ram;
+	DMA& dma;
+	GPU& gpu;
+
+	uint32_t ram_size=0;
 	uint32_t dma_reg(uint32_t offset);
 	void set_dma_reg(uint32_t offset, uint32_t value);
 	void do_dma(Port port);
@@ -59,7 +63,7 @@ private:
 	void do_dma_block(Port port);
 
 	static constexpr Range MEMCONTROL{ 0x1f801000, 36 };
-	static constexpr Range RAM_RANGE{ 0x00000000, 8 * 1024 * 1024 };              // 2MB RAM
+	static constexpr Range RAM_RANGE{ 0x00000000, 2* 1024 * 1024 };              // 2MB RAM
 	static constexpr Range BIOS_RANGE{ 0x1FC00000, 512 * 1024 };                  // 512KB BIOS
 	static constexpr Range SYS_CONTROL{ 0x1F801000, 36 };                   // unknown registers (mednafen)
 	static constexpr Range RAM_SIZE{ 0x1F801060, 4 };                       // RAM config register

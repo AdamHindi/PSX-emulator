@@ -9,13 +9,24 @@ void Interconnect::write32(uint32_t address, uint32_t value){
 		printf("Address 0x%08X is not aligned to 4 bytes.\n", address);
 		return; // Do nothing if address is not aligned
 	}
+	if (address == 0x1f8010a8 && value == 0x01000201) {
+		printf("\n im inside write 32 Probleme here");
+	}
 	auto abs_adr = mask_region(address);
 	if (auto offset = CACHE_CONTROL.contains(abs_adr)) {
 		printf("\nUnhandled cache control write32");
 		return;
 	}
+	if (auto offset = RAM_SIZE.contains(abs_adr)) {
+		ram_size=value;
+		return;
+	}
 	if (auto offset = GPU_RANGE.contains(abs_adr); offset.has_value()) {
-		printf("GPU WRITE 32");
+		switch (offset.value()) {
+		case 0: gpu.gp0(value);break;
+		case 4: gpu.gp1(value);break;
+		default:printf("Unhandled GPU write"); break;
+		}
 		
 		return;
 	}
@@ -27,11 +38,15 @@ void Interconnect::write32(uint32_t address, uint32_t value){
 		set_dma_reg(offset.value(),value);
 		return;
 	}
+	if (auto offset = TIMER.contains(abs_adr)) {
+		printf("\ntimer writing 32");
+		return;
+	}
 	if (auto offset = IRQ_CONTROL.contains(abs_adr)) {
 		printf("\nUnhandled IRQ Control\n");
 		return;
 	}
-	if (auto offsetOpt = MEMCONTROL.contains(address)) {
+	if (auto offsetOpt = MEMCONTROL.contains(abs_adr)) {
 		uint32_t offset = *offsetOpt;
 		switch (offset) {
 		case 0: // Expansion 1 base address
@@ -43,6 +58,7 @@ void Interconnect::write32(uint32_t address, uint32_t value){
 		case 4: // Expansion 2 base address
 			if (value != 0x1f802000) {
 				throw std::runtime_error("\nBad expansion 2 base address: 0x%32X" + value);
+				break;
 			}
 			break;
 
@@ -54,7 +70,7 @@ void Interconnect::write32(uint32_t address, uint32_t value){
 		return;
 	}
 
-	printf("Unhandled write, 0x%08X is out of range.\n", address);
+	printf("Unhandled write, 0x%08X is out of range.\n", abs_adr);
 }
 
 uint16_t Interconnect::read16(uint32_t addr) {
@@ -71,6 +87,7 @@ uint16_t Interconnect::read16(uint32_t addr) {
 		return 0;
 	}
 	printf("Unhandled Read 16 %08x", addr);
+	return 0;
 }
 
 uint8_t Interconnect::read8(uint32_t addr) {
@@ -85,6 +102,7 @@ uint8_t Interconnect::read8(uint32_t addr) {
 		return ram.read8(offset.value());
 	}
 	printf("Unhandled read in read8, 0x%08X is out of range.\n", addr);
+	return 0;
 }
 
 
@@ -99,6 +117,9 @@ uint32_t Interconnect::read32(uint32_t address){
 	if (auto offset = BIOS_RANGE.contains(abs_adr)) {
 		return bios.read32(offset.value());
 	}
+	if (auto offset = RAM_SIZE.contains(abs_adr)) {
+		return ram_size;
+	}
 	if (auto offset = RAM_RANGE.contains(abs_adr)) {
 		return ram.read32(offset.value());
 	}
@@ -109,11 +130,18 @@ uint32_t Interconnect::read32(uint32_t address){
 	if (auto offset = DMA.contains(abs_adr); offset.has_value()) {
 		return dma_reg(offset.value());
 	}
+	if (auto offset = TIMER.contains(abs_adr); offset.has_value()) {
+		//printf("\nRead32 TIMER");
+		return 0;
+	}
+	
 	if (auto offset = GPU_RANGE.contains(abs_adr); offset.has_value()) {
-		printf("GPU READ \n");
+		
 		switch (offset.value()) {
 		case(4):
-			return 0x10000000;
+			return gpu.status();
+		case(0):
+			return gpu.read();
 		}
 		return 0;
 	}
@@ -145,13 +173,17 @@ void Interconnect::write16(uint32_t address, uint16_t val) {
 			ram.write16(offset.value(), val);
 			return;
 		}
-		printf("\nUnhandled store, 0x%08X is out of range.\n", abs_adr);
+		printf("\nUnhandled store16, 0x%08X is out of range.\n", address);
 
 
 }
 
 void Interconnect::write8(uint32_t address, uint8_t value) {
 	auto abs_addr = mask_region(address);
+	if (auto offset = GPU_RANGE.contains(abs_addr)) {
+		printf("unhandled write 8 into gpu");
+		return;
+	}
 	if (auto offset = RAM_RANGE.contains(abs_addr)) {
 		return ram.write8(offset.value(), value);
 	}
@@ -163,6 +195,9 @@ void Interconnect::write8(uint32_t address, uint8_t value) {
 }
 
 void Interconnect::set_dma_reg(uint32_t offset, uint32_t val) {
+	auto align = offset & 3;
+	val = val << (align * 8);
+	 offset = offset & ~3;
 	uint32_t major = (offset & 0x70) >> 4;
 	uint32_t minor = offset & 0xF;
 
@@ -183,11 +218,12 @@ void Interconnect::set_dma_reg(uint32_t offset, uint32_t val) {
 		if (channel.active()) {
 			active_port = port;
 		}
+
 	}
 	else if (major == 7) {
 		switch (minor) {
-		case 4: dma.set_control(val);
-		case 0: dma.set_interrupt(val);
+		case 0: dma.set_control(val); break;
+		case 4: dma.set_interrupt(val); break;
 		default:
 			std::runtime_error("Unhandled DMA write");
 		}
@@ -244,8 +280,9 @@ void Interconnect::do_dma(Port port) {
 	}
 }
 void Interconnect::do_dma_linked_list(Port port) {
-	const Channel& channel = dma.channel(port);
+	Channel& channel = dma.channel(port);
 	uint32_t addr = channel.get_base() & 0x1FFFFC;
+	ram.check("do_dma_block entry");
 
 	if (channel.get_direction() == Direction::ToRam) {
 		throw std::runtime_error("Invalid DMA direction for linked list mode");
@@ -256,13 +293,15 @@ void Interconnect::do_dma_linked_list(Port port) {
 	}
 
 	while (true) {
+
 		uint32_t header = ram.read32(addr);
 		uint32_t remsz = header >> 24;
 
-		while (remsz-- > 0) {
-			addr = (addr + 4) & 0x1FFFFC;
+		while (remsz > 0) {
+			addr = (addr + 4) & 0x1ffffc;
 			uint32_t command = ram.read32(addr);
-			
+			gpu.gp0(command);
+			remsz -= 1;
 		}
 
 		if ((header & 0x800000)!=0) {
@@ -271,11 +310,12 @@ void Interconnect::do_dma_linked_list(Port port) {
 
 		addr = header & 0x1FFFFC;
 	}
+	channel.done();
+	dma.done(port); // Mark the DMA as done for this port
 }
 void Interconnect::do_dma_block( Port port) {
 	Channel& channel = dma.channel(port);
-
-	int32_t step = (channel.get_step() == Step::Inc) ? 4 : -4;
+	uint32_t step = channel.get_step() == Step::Inc ? 4 : -4;
 	uint32_t addr = channel.get_base();
 
 	std::optional<uint32_t> maybe_size = channel.transfer_size();
@@ -284,14 +324,15 @@ void Interconnect::do_dma_block( Port port) {
 	}
 	uint32_t remsz = maybe_size.value();
 
-	while (remsz-- > 0) {
+	while (remsz > 0) {
 		uint32_t cur_addr = addr & 0x1FFFFC;
 
 		if (channel.get_direction() == Direction::FromRam) {
+
 			uint32_t word = ram.read32(cur_addr);
 			switch (port) {
-				
-				case Port::Spu:     /* TODO: implement SPU write */ break;
+			case Port::Gpu:  gpu.gp0(word); break;
+			case Port::Spu:    break;
 			default:
 				throw std::runtime_error("Unhandled DMA destination port");
 			}
@@ -300,7 +341,7 @@ void Interconnect::do_dma_block( Port port) {
 			uint32_t word;
 			switch (port) {
 			case Port::Otc:
-				word = (remsz == 0) ? 0xFFFFFF : ((addr - 4) & 0x1FFFFF);
+				word = (remsz == 1) ? 0xFFFFFF : ((addr - 4) & 0x1FFFFF);
 				break;
 			case Port::Gpu:
 				// GPU DMA to RAM (read): not implemented
@@ -312,10 +353,17 @@ void Interconnect::do_dma_block( Port port) {
 			default:
 				throw std::runtime_error("Unhandled DMA source port");
 			}
-
+			
 			ram.write32(cur_addr, word);
+			ram.check("do_dma_block write32");
 		}
 
-		addr += step;
+		addr = uint32_t(addr+ step);
+		remsz -= 1;
 	}
+	channel.done();
+	dma.done(port); 
+	/* ----  DMA finished  ---- */
+
+	//    (no code needed here: dma.irq() already checks flags & masks)
 }

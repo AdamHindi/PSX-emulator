@@ -19,13 +19,15 @@ enum Exception {
 class CPU {
 
 public:
-	CPU(Interconnect& inter) : interconnect(inter), load({  }) { running = true; instruction_num=0;reset(inter); };
+	CPU(Interconnect& inter) : interconnect(&inter), load({  }) { running = true; instruction_num=0;reset(inter); };
 	void run_next_instruction();
 	void set_register(uint32_t reg, uint32_t value);
 	uint32_t get_register(uint32_t reg)  { return regs[reg]; };
 	bool running ;
 	int instruction_num;
 private:
+	Instruction lastInstruct = Instruction(0x0000000);
+	Instruction beforeLast = Instruction(0x0000000);
 	uint32_t pc; // Program Counter
 	uint32_t next_pc; // Next PC for exceptions ?
 	uint32_t regs[32]; // General-purpose registers	
@@ -41,7 +43,7 @@ private:
 	uint32_t cause; //cop0 register 13 : cause reg
 	uint32_t sr; // Cop0 register 12 : Status Register
 
-	Interconnect interconnect; // Interconnect for memory and I/O operations
+	Interconnect* interconnect; // Interconnect for memory and I/O operations
 	uint32_t next_instruction; //pipeline of next instruction to fetch before jumps
 
 	void reset(Interconnect& inter);
@@ -50,12 +52,12 @@ private:
 	std::pair<uint32_t, uint32_t> load;
 	void decode_and_execute(uint32_t opcode);
 	uint32_t read32(uint32_t address);
-	uint16_t read16(uint32_t address) { return interconnect.read16(address); };
+	uint16_t read16(uint32_t address) { return interconnect->read16(address); };
 	uint8_t read8(uint32_t address);
 	void write32(uint32_t address, uint32_t value);
 
 	void write16(uint32_t address, uint16_t value) {
-		interconnect.write16(address, value);
+		interconnect->write16(address, value);
 	};
 	void write8(uint32_t address, uint8_t value);
 	void branch(int32_t off);

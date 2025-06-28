@@ -8,7 +8,7 @@
 void CPU::reset(Interconnect& inter) {
 	pc = 0xbfc00000; // Reset program counter to the start of BIOS:  0xbfc00000
 	next_pc = pc + 4;
-	interconnect = inter; // Initialize the interconnect (contains BIOS for now)
+	interconnect = &inter; // Initialize the interconnect (contains BIOS for now)
 	for (int i = 1; i < 32; ++i) { // Set all registers to 0 except for $zero which is always 0
 		regs[i] = 0;
 	}
@@ -31,38 +31,42 @@ void CPU::branch(int32_t imm_se) {
 
 void CPU::run_next_instruction() {
     
+	/* ---------- 1. Retire previous cycle ---------- */
+	for (int i = 1; i < 32; ++i) {          // r0 stays 0
+		regs[i] = out_regs[i];
+		out_regs[i] = regs[i];              // prime WB shadow
+	}
 
+	if (load.first) {                       // resolve load delay
+		regs[load.first] = load.second;
+		out_regs[load.first] = load.second; // keep shadow coherent
+		load.first = 0;
+	}
 	current_pc = pc;
 	if (current_pc % 4 != 0) {
 		exception(Exception::LoadAddressError);
 		return;
 	}
+	delay_slot = in_branch;
+	in_branch = false;
 
 	uint32_t instruction = read32(pc);
 	instruction_num += 1;
+
 	pc = next_pc;
 	next_pc += 4;
+	
+    
 
-    auto reg = load.first;
-    auto val = load.second;
-    set_register(reg, val);
-
- //   // Print the contents of the registers in a readable format
-
- //   // Reset load
-	load.first = 0;
-   load.second = 0;
-
-   delay_slot = in_branch;
-   in_branch = false;
+   
     decode_and_execute(instruction);
-    std::copy(std::begin(out_regs), std::end(out_regs), std::begin(regs));
 }
 
 void CPU::decode_and_execute(uint32_t instruction) {
 	// Decode the instruction and execute it
 	Instruction instruct = Instruction(instruction); // Assuming Instruction is a class that can interpret the instruction
-	
+	beforeLast = lastInstruct;
+	lastInstruct = instruct;
 	switch (instruct.funct) { // Example: using the last byte as an opcode
 		case 0b000000: {
 			//printf(" SUBfunction : %08x\n", instruct.subfunct);
@@ -149,9 +153,7 @@ void CPU::decode_and_execute(uint32_t instruction) {
 				case 0x22:
 					op_sub(instruct);
 					break;
-				case 0x0e:
-					op_xori(instruct);
-					break;
+				
 				default:
 					printf("\nUnknown subbbinstruction: 0x%08X, full 0x%08X\n", instruct.subfunct, instruction);
 					running = false;
@@ -239,6 +241,21 @@ void CPU::decode_and_execute(uint32_t instruction) {
 		case 0x13:
 			op_cop3(instruct);
 			break;
+		case 0x22:
+			op_lwl(instruct);
+			break;
+		case 0b100110:
+			op_lwr(instruct);
+			break;
+		case 0x2A:
+			op_swl(instruct);
+			break;
+		case 0x2E:
+			op_swr(instruct);
+			break;
+		case 0x0e:
+			op_xori(instruct);
+			break;
 		default:
 			printf("\nUnknown instruction: 0x%08X, full 0x%08X\n", instruct.funct, instruction);
 			running = false;
@@ -299,17 +316,19 @@ void CPU::op_cop3(Instruction instruct) {
 
 
 uint32_t CPU::read32(uint32_t address) {
-	return CPU::interconnect.read32(address); // Read a 32-bit value from the interconnect
+	return CPU::interconnect->read32(address); // Read a 32-bit value from the interconnect
 }
 uint8_t CPU::read8(uint32_t addr) {
-	return interconnect.read8(addr);
+	return interconnect->read8(addr);
 }
 void CPU::write32(uint32_t address, uint32_t value) {
-	CPU::interconnect.write32(address, value);
+
+	CPU::interconnect->write32(address, value);
+
 }
 
 void CPU::write8(uint32_t address, uint8_t value) {
-	CPU::interconnect.write8(address, value);
+	CPU::interconnect->write8(address, value);
 }
 void CPU::set_register(uint32_t reg, uint32_t value) {
 	out_regs[reg] = value; // Set the register to the given value
@@ -324,7 +343,7 @@ void CPU::op_rfe(Instruction instruct) {
 		printf("Invalid cop0 instruction rfe");
 	}
 	auto mode = sr & 0x3F;
-	sr &= !0x3F;
+	sr &= ~0x3F;
 	sr |= mode >> 2;
 }
 
@@ -354,7 +373,9 @@ void CPU::op_sw(Instruction instruct) {
 	uint32_t addr = regs[s] + i_se;
 	uint32_t v = regs[t];
 	if (addr % 4 == 0) {
+		
 		write32(addr, v);
+		
 	}
 	else {
 		printf("Problem here1");
@@ -379,7 +400,7 @@ void CPU::op_addiu(Instruction instruct) {
 }
 void CPU::op_jmp(Instruction instruct) {
 	auto j = instruct.jump_addr;
-	next_pc = (pc & 0xf0000000) | (j<<2);
+	next_pc = (pc & 0xF0000000) | ((j << 2) & 0x0FFFFFFC);
 	in_branch = true;
 }
 void CPU::op_or(Instruction instruct) {
@@ -408,17 +429,20 @@ void CPU::op_addi(Instruction instruct) {
 	
 }
 void CPU::op_lw(Instruction instruct) {
+
 	if ((sr & 0x10000) != 0) {
 		printf("\nCant lw, the cache is isolated");
 		return;
 	}
+
 	auto imm_se = instruct.immediate_sign_extended;
 	auto t = instruct.rt;
 	auto s = instruct.rs;
 	auto addr = regs[s] + imm_se;
 	if (addr % 4 == 0) {
 		auto v = read32(addr);
-		load.first = t;
+		//printf("\nLoading 1");
+		load.first =t;
 		load.second = v;
 	}
 	else {
@@ -459,7 +483,7 @@ void CPU::op_sh(Instruction instruct) {
 	
 }
 void CPU::op_jal(Instruction instruct) {
-	set_register(31, pc);
+	set_register(31, next_pc);
 	op_jmp(instruct);
 	in_branch = true;
 }
@@ -492,6 +516,7 @@ void CPU::op_lb(Instruction instruct) {
 	auto s = instruct.rs;
 	auto add = regs[s] + imm_se;
 	int8_t v = read8(add);
+	//printf("\nloading 2");
 	load.first = t;
 	load.second = uint32_t(v);
 }
@@ -519,6 +544,7 @@ void CPU::op_mfc0(Instruction instruct) {
 		v = sr;
 		break;
 	}
+	//printf("\nload 3");
 	load.first = cpu_r;
 	load.second = v;
 
@@ -609,14 +635,16 @@ void CPU::op_lbu(Instruction instruct) {
 	auto t = instruct.rt;
 	auto add = regs[s] + imm_se;
 	auto v = read8(add);
+	//printf("\nLoad 4");
 	load.first = t;
 	load.second = uint32_t(v);
 }
 void CPU::op_jalr(Instruction instruct) {
 	auto d = instruct.rd;
 	auto s = instruct.rs;
+	auto ra = next_pc;
 	next_pc = regs[s];
-	set_register(d, pc);
+	set_register(d, ra);
 	in_branch = true;
 }
 void CPU::op_bxx(Instruction instruct) {
@@ -633,7 +661,7 @@ void CPU::op_bxx(Instruction instruct) {
 
 	test = test ^ is_bgez;
 	if (is_link) {
-		auto ra = pc;
+		auto ra = next_pc;
 		set_register(31, ra);
 	}
 	if( test != 0){
@@ -680,7 +708,7 @@ void CPU::op_div(Instruction instruct) {
 	int32_t n = regs[s];
 	int32_t d = regs[t];
 	if (d == 0) {
-		uint32_t hi = n;
+		hi = n;
 		if (n >= 0) {
 			lo = 0xFFFFFFFF;
 		}
@@ -763,8 +791,10 @@ void CPU::op_lhu(Instruction instruct) {
 	uint32_t add = regs[s] + imm_se;
 
 	if ((add % 2) == 0) {
-		load.second = uint32_t(uint16_t(read16(add)));
+		//printf("\nload 1313");
 		load.first = t;
+		load.second = uint32_t(uint16_t(read16(add)));
+		
 	}
 	else {
 		exception(Exception::LoadAddressError);
@@ -784,8 +814,10 @@ void CPU::op_lh(Instruction instruct) {
 	auto t = instruct.rt;
 	auto add = regs[s] + imm_se;
 	if (add % 2 == 0) {
-	load.first = t;
-	load.second = uint32_t(int16_t(read16(add)));
+		//printf("\ncaca 22 33 ");
+		load.first = t;
+		load.second = uint32_t(int16_t(read16(add)));
+		
 	}
 	else {
 		exception(Exception::LoadAddressError);
@@ -795,7 +827,7 @@ void CPU::op_nor(Instruction instruct) {
 	auto d = instruct.rd;
 	auto s = instruct.rs;
 	auto t = instruct.rt;
-	auto v = !(regs[s] | regs[t]);
+	auto v = ~(regs[s] | regs[t]);
 	set_register(d, v);
 }
 void CPU::op_srav(Instruction instruct) {
@@ -852,9 +884,139 @@ void CPU::op_xori(Instruction instruct) {
 	set_register(t,  regs[s]^ i);
 }
 void CPU::op_lwl(Instruction instruct) {
-	auto imm_se = instruct.immediate_sign_extended;
-	auto s = instruct.rs;
-	auto t = instruct.rt;
-	auto add = regs[s] + imm_se;
-	printf("implement");
+	uint32_t i = instruct.immediate_sign_extended;  // Sign-extended immediate
+	uint32_t t = instruct.rt;      // Target register index
+	uint32_t s = instruct.rs;      // Source register index
+
+	uint32_t addr = regs[s] + i;
+
+	// This instruction bypasses the usual load delay restriction:
+	// If there is a value already being loaded, it merges with that.
+	uint32_t curv = out_regs[t];
+
+	// Load the aligned word (address rounded down to multiple of 4)
+	uint32_t aligned_addr = addr & ~3;
+	uint32_t aligned_word = read32(aligned_addr);
+
+	// Merge bytes depending on alignment (little endian assumed)
+	uint32_t v = 0;
+	switch (addr & 3) {
+	case 0:
+		v = (curv & 0x00FFFFFF) | (aligned_word << 24);
+		break;
+	case 1:
+		v = (curv & 0x0000FFFF) | (aligned_word << 16);
+		break;
+	case 2:
+		v = (curv & 0x000000FF) | (aligned_word << 8);
+		break;
+	case 3:
+		v = (curv & 0x00000000) | (aligned_word << 0);
+		break;
+	default:
+		throw std::runtime_error("Unreachable case in LWL");
+	}
+	//printf("\nomafaaa");
+	load.first =t;
+	load.second = v;
+}
+
+void CPU::op_lwr(Instruction instruct) {
+	int32_t i = instruct.immediate_sign_extended;  // Sign-extended immediate
+	uint32_t t = instruct.rt;      // Target register index
+	uint32_t s = instruct.rs;      // Source register index
+
+	uint32_t addr = regs[s] + i;
+
+	// This instruction bypasses the usual load delay restriction:
+	// If there is a value already being loaded, it merges with that.
+	uint32_t curv = out_regs[t];
+
+	// Load the aligned word (address rounded down to multiple of 4)
+	uint32_t aligned_addr = addr & ~3;
+	uint32_t aligned_word = read32(aligned_addr);
+
+	// Merge bytes depending on alignment (little endian assumed)
+	uint32_t v = 0;
+	switch (addr & 3) {
+	case 0: v = (curv & 0x00000000) | (aligned_word >> 0); break;
+	case 1:
+		v = (curv & 0xFF000000) | (aligned_word >> 8);
+		break;
+	case 2:
+		v = (curv & 0xFFFF0000) | (aligned_word >> 16);
+		break;
+	case 3:
+		v = (curv & 0xFFFFFF00) | (aligned_word >> 24);
+		break;
+	default:
+		throw std::runtime_error("Unreachable alignment case in LWR");
+	}
+	//printf("\nomamaaa");
+	load.first = t;
+	load.second = v;
+}
+
+void CPU::op_swl(Instruction instruct) {
+	uint32_t i = instruct.immediate_sign_extended;
+	uint32_t t = instruct.rt;
+	uint32_t s = instruct.rs;
+
+	uint32_t addr = regs[s] + i;
+	uint32_t v = regs[t];
+
+	uint32_t aligned_addr = addr & ~0x3;
+	uint32_t cur_mem = read32(aligned_addr);
+	uint32_t mem;
+
+	switch (addr & 3) {
+	case 0:
+		mem = (cur_mem & 0xFFFFFF00) | (v >> 24);
+		break;
+	case 1:
+		mem = (cur_mem & 0xFFFF0000) | (v >> 16);
+		break;
+	case 2:
+		mem = (cur_mem & 0xFF000000) | (v >> 8);
+		break;
+	case 3:
+		mem = v;
+		break;
+	default:
+		throw std::runtime_error("Unreachable SWL case");
+	}
+
+	write32(aligned_addr, mem);
+
+}
+void CPU::op_swr(Instruction instruct) {
+	uint32_t i = instruct.immediate_sign_extended;
+	uint32_t t = instruct.rt;
+	uint32_t s = instruct.rs;
+
+	uint32_t addr = regs[s] + i;
+	uint32_t v = regs[t];
+
+	uint32_t aligned_addr = addr & ~0x3;
+	uint32_t cur_mem = read32(aligned_addr);
+	uint32_t mem;
+
+	switch (addr & 3) {
+	case 0:
+		mem = (cur_mem & 0x00000000) | (v << 0);
+		break;
+	case 1:
+		mem = (cur_mem & 0x000000FF) | (v << 8);
+		break;
+	case 2:
+		mem = (cur_mem & 0x0000FFFF) | (v << 16);
+		break;
+	case 3:
+		mem = (cur_mem & 0x00FFFFFF) | (v << 24);
+		break;
+	default:
+		throw std::runtime_error("Unreachable SWR case");
+	}
+
+	write32(aligned_addr, mem);
 }
