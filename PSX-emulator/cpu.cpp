@@ -63,6 +63,7 @@ void CPU::run_next_instruction() {
 }
 
 void CPU::decode_and_execute(uint32_t instruction) {
+	//printf("Instruction : %08x :", instruction);
 	// Decode the instruction and execute it
 	Instruction instruct = Instruction(instruction); // Assuming Instruction is a class that can interpret the instruction
 	beforeLast = lastInstruct;

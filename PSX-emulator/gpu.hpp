@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include "renderer.hpp"
 
 enum class Gp0Mode {
     /// D e f a ul t mode : h a n dli n g commands
@@ -98,6 +99,7 @@ struct CommandBuffer {
 
 struct GPU {
     Gp0Mode gp0_mode;
+	Renderer renderer;
 
     CommandBuffer gp0_command;
     uint32_t gp0_command_remaining;
@@ -186,7 +188,8 @@ struct GPU {
     static void gp0_quad_shaded_opaque(GPU* self);
     static void gp0_triangle_shaded_opaque(GPU* self);
     static void gp0_quad_texture_blend_opaque(GPU* self);
-    
+    std::vector<uint16_t> gp0_texture_coordinates(uint32_t gp0);
+    void update_viewport();
 
     static void gp0_image_load(GPU* self);
     static void gp0_nop(GPU* self);

@@ -26,7 +26,7 @@ void GPU::reset() {
     gp0_command_remaining = 0;
     gp0_command_method = nullptr;
     gp1_reset(0);
-    
+
 }
 
 uint32_t GPU::status()  {
@@ -216,7 +216,17 @@ void GPU::gp0_nop(GPU* self) {
     // NOP OPCODE
 }
 void GPU::gp0_quad_mono_opaque(GPU* self) {
-    printf("Drow quad\n");
+    std::vector<Position> positions = { Position::from_gp0(self->gp0_command[1]),
+                                        Position::from_gp0(self->gp0_command[2]),
+                                        Position::from_gp0(self->gp0_command[3]),
+                                        Position::from_gp0(self->gp0_command[4])
+    };
+    std::vector<Color> colors = {   Color::from_gp0(self->gp0_command[0]),
+                                    Color::from_gp0(self->gp0_command[0]),
+                                    Color::from_gp0(self->gp0_command[0]),
+                                    Color::from_gp0(self->gp0_command[0])
+    };
+    self->renderer.push_quad(&positions, &colors);
 }
 void GPU::gp0_draw_mode(GPU* self, uint32_t val) {
     self->page_base_x = static_cast<uint8_t>(val & 0xF);
@@ -334,6 +344,8 @@ void GPU::gp0_drawing_offset(GPU* self, uint32_t val) {
 
     self->drawing_x_offset = (static_cast<int16_t>(x << 5)) >> 5;
     self->drawing_y_offset = (static_cast<int16_t>(y << 5)) >> 5;
+    self->renderer.set_draw_offset(x, y);
+    self->renderer.display();
 }
 
 void GPU::gp0_texture_window(GPU* self,uint32_t val) {
@@ -352,17 +364,44 @@ void GPU::gp1_display_enable(uint32_t val) {
     display_disabled = ((val & 1) != 0);
 }
 
+
+void GPU::update_viewport()
+{
+    /* 1. calculate width/height ----------------------------------- */
+    const uint16_t width =
+        static_cast<uint16_t>((display_horiz_end - display_horiz_start) );
+    const uint16_t height =
+        static_cast<uint16_t>(display_line_end - display_line_start);
+
+    if (width == 0 || width > 1024 || height == 0 || height > 512)
+        return;                               // BIOS still initialising
+
+    /* 2. origin inside VRAM -------------------------------------- */
+    const uint16_t x_off = static_cast<uint16_t>((display_horiz_start - 0x200) );
+    const uint16_t y_off = display_line_start;
+
+    const uint16_t gl_x = static_cast<uint16_t>(display_vram_x_start + x_off);
+    const uint16_t gl_y = static_cast<uint16_t>(display_vram_y_start + y_off);
+    // ^ NO extra flip – shader already does it
+
+    renderer.set_display_window(gl_x, gl_y, width, height);
+}
+
+
 void GPU::gp1_display_vram_start(uint32_t val) {
     display_vram_x_start = static_cast<uint16_t>(val & 0x3FE);
     display_vram_y_start = static_cast<uint16_t>((val >> 10) & 0x1FF);
+    update_viewport();
 }
 void GPU::gp1_display_horizontal_range(uint32_t val) {
     display_horiz_start = static_cast<uint16_t>(val & 0xFFF);
     display_horiz_end = static_cast<uint16_t>((val >> 12) & 0xFFF); 
+    update_viewport();
 }
 void GPU::gp1_display_vertical_range(uint32_t val) {
-    display_vram_x_start = static_cast<uint16_t>(val & 0x3FF);
-    display_vram_y_start = static_cast<uint16_t>((val >> 10) & 0x3FF);
+    display_line_start = static_cast<uint16_t>(val & 0x3FF);
+    display_line_end = static_cast<uint16_t>((val >> 10) & 0x3FF);
+    update_viewport();
 }
 
 void GPU::gp0_image_store() {
@@ -370,7 +409,7 @@ void GPU::gp0_image_store() {
     auto res = gp0_command[2];
     auto width = res & 0xffff;
     auto height = res >> 16;
-    printf("unhandled image store");
+    //printf("unhandled image store");
 }
 
 void GPU::gp1_reset_command_buffer() {
@@ -379,13 +418,41 @@ void GPU::gp1_reset_command_buffer() {
     gp0_mode = Gp0Mode::Command;
 }
 void GPU::gp0_quad_shaded_opaque(GPU* self) {
-    printf("Unhandled quad shaded opaque");
+    std::vector<Position> positions = { Position::from_gp0(self->gp0_command[1]),
+                                        Position::from_gp0(self->gp0_command[3]),
+                                        Position::from_gp0(self->gp0_command[5]),
+                                        Position::from_gp0(self->gp0_command[7])
+    };
+    std::vector<Color> colors = { Color::from_gp0(self->gp0_command[0]),
+                                    Color::from_gp0(self->gp0_command[2]),
+                                    Color::from_gp0(self->gp0_command[4]),
+                                    Color::from_gp0(self->gp0_command[6])
+    };
+    self->renderer.push_quad(&positions, &colors);
 }
+// GP0(0x30) - Triangle shaded opaque
 void GPU::gp0_triangle_shaded_opaque(GPU* self) {
-    printf("Unhandled triangle");
+    std::vector<Position> positions = { Position::from_gp0(self->gp0_command[1]),
+                       Position::from_gp0(self->gp0_command[3]),
+        Position::from_gp0(self->gp0_command[5]) };
+    std::vector<Color> colors = { Color::from_gp0(self->gp0_command[0]),
+                       Color::from_gp0(self->gp0_command[2]),
+		Color::from_gp0(self->gp0_command[4]) };
+	self ->renderer.push_triangle(&positions, &colors);
+    //printf("Unhandled triangle");
 }
 void GPU::gp0_quad_texture_blend_opaque(GPU* self) {
-    printf("Unhandled quad text blend opaq");
+    std::vector<Position> positions = { Position::from_gp0(self->gp0_command[1]),
+                                        Position::from_gp0(self->gp0_command[3]),
+                                        Position::from_gp0(self->gp0_command[5]),
+                                        Position::from_gp0(self->gp0_command[7])
+    };
+    std::vector<Color> colors = {Color(0x80,0x00,0x00),
+                                Color(0x80,0x00,0x00),
+                                Color(0x80,0x00,0x00),
+                                Color(0x80,0x00,0x00)
+    };
+    self->renderer.push_quad(&positions, &colors);
 }
 void GPU::gp1_acknowledge_irq() {
     interrupt = false;
@@ -393,4 +460,9 @@ void GPU::gp1_acknowledge_irq() {
 
 uint32_t GPU::read() {
     return 0;
+}
+std::vector<uint16_t> GPU::gp0_texture_coordinates(uint32_t gp0) {
+    auto x = gp0 & 0xFF;
+    auto y = (gp0 >> 8) & 0xFF;
+    return std::vector<uint16_t>{static_cast<uint16_t>(x), static_cast<uint16_t>(y)};
 }

@@ -4,8 +4,13 @@
 #include <iostream>
 #include "cpu.hpp"
 
-int main()
-{
+#define SDL_MAIN_HANDLED
+
+
+
+int main(int, char**) {
+
+
 	BIOS bios("roms/SCPH1001.bin");
 	RAM ram;
 	DMA dma;
@@ -23,6 +28,7 @@ int main()
 	
     
     std::cout << "Hello World!\n";
+	return 0;
 }
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu

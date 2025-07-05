@@ -40,6 +40,7 @@ uint32_t Channel::get_control() const{
 	r |= uint32_t(dummy) << 29;
 	return r;
 }
+
 void Channel::set_control(uint32_t val) {
 	direction = ((val & 1) !=0) ? Direction::FromRam : Direction::ToRam;
 
